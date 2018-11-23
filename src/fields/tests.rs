@@ -111,6 +111,7 @@ fn rand_element_multiplication<F: FieldElement, R: Rng>(rng: &mut R) {
 }
 
 pub fn field_trials<F: FieldElement>() {
+    use std::mem::transmute_copy;
     can_invert::<F>();
 
     assert_eq!(-F::zero(), F::zero());
@@ -118,7 +119,8 @@ pub fn field_trials<F: FieldElement>() {
     assert_eq!(F::zero() - F::zero(), F::zero());
 
     let seed: [usize; 4] = [103245, 191922, 1293, 192103];
-    let mut rng = StdRng::from_seed(&seed);
+    let seed_u8= unsafe { transmute_copy(&seed) };
+    let mut rng = StdRng::from_seed(seed_u8);
 
     rand_element_squaring::<F, StdRng>(&mut rng);
     rand_element_addition_and_negation::<F, StdRng>(&mut rng);

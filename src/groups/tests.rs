@@ -83,6 +83,8 @@ fn random_test_equality<G: GroupElement, R: Rng>(rng: &mut R) {
 }
 
 pub fn group_trials<G: GroupElement>() {
+    use std::mem::transmute_copy;
+
     assert!(G::zero().is_zero());
     assert!((G::one() - G::one()).is_zero());
     assert_eq!(G::one() + G::one(), G::one() * Fr::from_str("2").unwrap());
@@ -92,7 +94,8 @@ pub fn group_trials<G: GroupElement>() {
 
     use rand::{SeedableRng,StdRng};
     let seed: [usize; 4] = [103245, 191922, 1293, 192103];
-    let mut rng = StdRng::from_seed(&seed);
+    let seed_u8 = unsafe { transmute_copy(&seed) };
+    let mut rng = StdRng::from_seed(seed_u8);
 
     random_test_addition::<G, _>(&mut rng);
     random_test_doubling::<G, _>(&mut rng);

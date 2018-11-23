@@ -5,8 +5,7 @@ extern crate bn;
 extern crate bincode;
 
 use bn::*;
-use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{encode, decode};
+use bincode::{serialize, deserialize};
 
 const SAMPLES: usize = 30;
 
@@ -17,7 +16,7 @@ macro_rules! benchmark(
             let $rng = &mut rand::thread_rng();
             let $input: Vec<_> = (0..SAMPLES).map(|_| $pre).collect();
 
-            b.bench_n(SAMPLES as u64, |b| {
+            b.bench(|b| {
                 let mut c = 0;
 
                 b.iter(|| {
@@ -25,9 +24,9 @@ macro_rules! benchmark(
 
                     let $input = &$input[c % SAMPLES];
 
-                    $post
-                })
-            })
+                    $post;
+                });
+            });
         }
     )
 );
@@ -35,37 +34,37 @@ macro_rules! benchmark(
 benchmark!(g1_serialization,
            input(rng) = G1::random(rng);
 
-           encode(input, Infinite).unwrap()
+           serialize(input).unwrap()
 );
 
 benchmark!(g1_serialization_normalized,
            input(rng) = {let mut tmp = G1::random(rng); tmp.normalize(); tmp};
 
-           encode(input, Infinite).unwrap()
+           serialize(input).unwrap()
 );
 
 benchmark!(g2_serialization,
            input(rng) = G2::random(rng);
 
-           encode(input, Infinite).unwrap()
+           serialize(input).unwrap()
 );
 
 benchmark!(g2_serialization_normalized,
            input(rng) = {let mut tmp = G2::random(rng); tmp.normalize(); tmp};
 
-           encode(input, Infinite).unwrap()
+           serialize(input).unwrap()
 );
 
 benchmark!(g1_deserialization,
-           input(rng) = {encode(&G1::random(rng), Infinite).unwrap()};
+           input(rng) = {serialize(&G1::random(rng)).unwrap()};
 
-           decode::<G1>(input).unwrap()
+           deserialize::<G1>(input).unwrap()
 );
 
 benchmark!(g2_deserialization,
-           input(rng) = {encode(&G2::random(rng), Infinite).unwrap()};
+           input(rng) = {serialize(&G2::random(rng)).unwrap()};
 
-           decode::<G2>(input).unwrap()
+           deserialize::<G2>(input).unwrap()
 );
 
 benchmark!(fr_addition,
