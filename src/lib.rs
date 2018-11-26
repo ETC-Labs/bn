@@ -1,6 +1,11 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
 extern crate rand;
 extern crate byteorder;
-extern crate bigint;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 
@@ -11,7 +16,8 @@ mod groups;
 use fields::FieldElement;
 use groups::GroupElement;
 
-use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
 use rand::Rng;
 
 #[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]

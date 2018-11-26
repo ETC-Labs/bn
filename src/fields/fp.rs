@@ -1,5 +1,7 @@
 use rand::Rng;
-use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use alloc::vec::Vec;
 use super::FieldElement;
 
 use serde::{Serialize, Serializer, Deserialize, Deserializer, de::Error};

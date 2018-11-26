@@ -1,4 +1,5 @@
-use std::cmp::Ordering;
+#[cfg(feature = "std")] use std::cmp::Ordering;
+#[cfg(not(feature = "std"))] use core::cmp::Ordering;
 use rand::Rng;
 
 use serde::{Serialize, Serializer, Deserialize, Deserializer, de::DeserializeOwned};

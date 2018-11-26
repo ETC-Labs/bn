@@ -1,7 +1,11 @@
-use std::ops::{Add,Sub,Neg,Mul};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::fmt;
+#[cfg(not(feature = "std"))] use core::fmt;
+#[cfg(not(feature = "std"))] use alloc::vec::Vec;
+
 use fields::{FieldElement, Fq, Fq2, Fq12, Fr, const_fq, fq2_nonresidue};
 use arith::U256;
-use std::fmt;
 use rand::Rng;
 
 use serde::{Serialize, Serializer, Deserialize, Deserializer, de::DeserializeOwned, de::Error};
