@@ -4,6 +4,11 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+#[cfg(test)]
+extern crate bincode;
+#[cfg(test)]
+extern crate hex;
+
 extern crate rand;
 extern crate byteorder;
 extern crate serde;

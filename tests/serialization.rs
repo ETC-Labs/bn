@@ -16,10 +16,10 @@ pub fn into_hex<S: Serialize>(obj: S) -> Option<String> {
     serialize(&obj).ok().map(hex::encode)
 }
 
-pub fn from_hex<S: DeserializeOwned>(s: &str) -> Option<S> {
+pub fn from_hex<S: DeserializeOwned>(s: &str) -> Result<S, bincode::Error> {
     let s = hex::decode(s).unwrap();
 
-    deserialize(&s).ok()
+    deserialize(&s)
 }
 
 pub fn reserialize<S: Serialize + DeserializeOwned>(obj: S) -> S {
@@ -62,15 +62,15 @@ fn group_serialization_and_deserialization() {
 fn group_serialization_edge_cases() {
     assert!(from_hex::<G1>("00").unwrap() == G1::zero());
     assert!(from_hex::<G2>("00").unwrap() == G2::zero());
-    assert!(from_hex::<G1>("23").is_none());
-    assert!(from_hex::<G2>("23").is_none());
+    assert!(from_hex::<G1>("23").is_err());
+    assert!(from_hex::<G2>("23").is_err());
 
     // not points on the curve
-    assert!(from_hex::<G1>("04177cedb64589bde7a64ad24f89bbb8c9f05535810865aaea8fbf8184ff9e120313500226b2422d2068614d1c8c7146c806a97743e78d9901748a9ded08ea9e5f").is_none());
-    assert!(from_hex::<G2>("0404d4bf3239f77cee7b47c7245e9280b3e9c1182d6381a87bbf81f9f2a6254b731df569cda95e060bee91ba69b3f2d103658a7aea6b10e5bdc761e5715e7ee4bb01b4c328f0cbdb4aada63b3d09100d792376b94d07a6004e46054eeec849e8de9835158a11d28483dd8db236ea49f3630edc9e41944e494c5aacfc36af3b66e7").is_none());
+    assert!(from_hex::<G1>("04177cedb64589bde7a64ad24f89bbb8c9f05535810865aaea8fbf8184ff9e120313500226b2422d2068614d1c8c7146c806a97743e78d9901748a9ded08ea9e5f").is_err());
+    assert!(from_hex::<G2>("0404d4bf3239f77cee7b47c7245e9280b3e9c1182d6381a87bbf81f9f2a6254b731df569cda95e060bee91ba69b3f2d103658a7aea6b10e5bdc761e5715e7ee4bb01b4c328f0cbdb4aada63b3d09100d792376b94d07a6004e46054eeec849e8de9835158a11d28483dd8db236ea49f3630edc9e41944e494c5aacfc36af3b66e7").is_err());
 
     // out of bounds
-    assert!(from_hex::<G2>("04ffd6a64a62b843a22c6250eda2354d603e74c30ed0b1435951c3f7dd541538beb8a43915823125c6bb89aece89125664ce78ca69b81cdb8164b40eb2833560b606e11258ce33c4076eff0d5824f210466b588d324b60ccd5a2b7f180f9a7cd7f1ab564ddb03b1b684ff4315acc6eef5229d99fe107afaea83a5c72f2b4c33aca").is_none());
+    assert!(from_hex::<G2>("04ffd6a64a62b843a22c6250eda2354d603e74c30ed0b1435951c3f7dd541538beb8a43915823125c6bb89aece89125664ce78ca69b81cdb8164b40eb2833560b606e11258ce33c4076eff0d5824f210466b588d324b60ccd5a2b7f180f9a7cd7f1ab564ddb03b1b684ff4315acc6eef5229d99fe107afaea83a5c72f2b4c33aca").is_err());
 }
 
 #[test]
@@ -121,11 +121,11 @@ fn fr_test_invalid_representations() {
     from_hex::<Fr>("30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000").unwrap();
 
     // modulus is not representable
-    assert!(from_hex::<Fr>("30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001").is_none());
+    assert!(from_hex::<Fr>("30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001").is_err());
 
     // ridiculously large numbers
-    assert!(from_hex::<Fr>("f0644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001").is_none());
-    assert!(from_hex::<Fr>("ffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000").is_none());
+    assert!(from_hex::<Fr>("f0644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001").is_err());
+    assert!(from_hex::<Fr>("ffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000").is_err());
 }
 
 #[test]

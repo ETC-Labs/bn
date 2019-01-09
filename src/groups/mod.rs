@@ -38,14 +38,12 @@ pub trait GroupParams: Sized {
 }
 
 #[repr(C)]
-#[derive(Serialize, Deserialize)]
 pub struct G<P: GroupParams> {
     x: P::Base,
     y: P::Base,
     z: P::Base
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct AffineG<P: GroupParams> {
     x: P::Base,
     y: P::Base
@@ -142,6 +140,66 @@ impl<P: GroupParams> AffineG<P> {
             x: self.x,
             y: self.y,
             z: P::Base::one()
+        }
+    }
+}
+
+impl<P: GroupParams> Serialize for G<P> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let value = if self.is_zero() {
+            None
+        } else {
+            let affine = self.to_affine().unwrap();
+            Some(affine)
+        };
+
+        value.serialize(s)
+    }
+}
+
+impl<'de, P: GroupParams> Deserialize<'de> for G<P> {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let h = <Option<AffineG<P>>>::deserialize(de)?;
+        match h {
+            None => Ok(G::zero()),
+            Some(affine) => Ok(affine.to_jacobian())
+        }
+    }
+}
+
+impl<P: GroupParams> Serialize for AffineG<P> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (self.x, self.y).serialize(s)
+    }
+}
+
+impl<'de, P: GroupParams> Deserialize<'de> for AffineG<P> {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let (x, y) = <(P::Base, P::Base)>::deserialize(de)?;
+
+        if y.squared() == (x.squared() * x) + P::coeff_b() {
+            if P::check_order() {
+                let p: G<P> = G {
+                    x,
+                    y,
+                    z: P::Base::one()
+                };
+
+                if (p * (-Fr::one())) + p != G::zero() {
+                    return Err(D::Error::custom("point is not in the subgroup"))
+                }
+            }
+
+            Ok(AffineG {
+                x,
+                y
+            })
+        } else {
+            return Err(D::Error::custom("point is not on the curve"))
         }
     }
 }
