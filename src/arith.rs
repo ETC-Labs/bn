@@ -1,8 +1,10 @@
-use std::cmp::Ordering;
+#[cfg(feature = "std")] use std::cmp::Ordering;
+#[cfg(not(feature = "std"))] use core::cmp::Ordering;
 use rand::Rng;
 
-use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use byteorder::{ByteOrder, BigEndian};
+
 
 /// 256-bit, stack allocated biginteger for use in prime field
 /// arithmetic.
@@ -97,64 +99,47 @@ impl U512 {
     }
 }
 
-impl Encodable for U512 {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+
+// TODO try using u32;8
+#[derive(Debug, Serialize, Deserialize)]
+struct U512Helper([u8; 32], [u8; 32]);
+
+impl<'de> Deserialize<'de> for U512 {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let mut buf = [0; (8 * 8)];
+        let U512Helper(buf_l, buf_r) = U512Helper::deserialize(de)?;
+        buf[..32].clone_from_slice(&buf_l);
+        buf[32..].clone_from_slice(&buf_r);
+
+        let mut n = [0; 8];
+        for (l, i) in (0..8).rev().zip((0..8).map(|i| i * 8)) {
+            n[l] = BigEndian::read_u64(&buf[i..]);
+        }
+
+        Ok(U512(n))
+    }
+}
+
+impl Serialize for U512 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
         let mut buf = [0; (8 * 8)];
 
         for (l, i) in (0..8).rev().zip((0..8).map(|i| i * 8)) {
             BigEndian::write_u64(&mut buf[i..], self.0[l]);
         }
 
-        for i in 0..(8 * 8) {
-            try!(s.emit_u8(buf[i]));
-        }
+        let mut buf_l = [0; 32];
+        buf_l[..].clone_from_slice(&buf[..32]);
 
-        Ok(())
-    }
-}
+        let mut buf_r = [0; 32];
+        buf_r[..].clone_from_slice(&buf[32..]);
 
-impl Decodable for U512 {
-    fn decode<S: Decoder>(s: &mut S) -> Result<U512, S::Error> {
-        let mut buf = [0; (8 * 8)];
-
-        for i in 0..(8 * 8) {
-            buf[i] = try!(s.read_u8());
-        }
-
-        Ok(U512::interpret(&buf))
-    }
-}
-
-impl Encodable for U256 {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        let mut buf = [0; (4 * 8)];
-
-        for (l, i) in (0..4).rev().zip((0..4).map(|i| i * 8)) {
-            BigEndian::write_u64(&mut buf[i..], self.0[l]);
-        }
-
-        for i in 0..(4 * 8) {
-            try!(s.emit_u8(buf[i]));
-        }
-
-        Ok(())
-    }
-}
-
-impl Decodable for U256 {
-    fn decode<S: Decoder>(s: &mut S) -> Result<U256, S::Error> {
-        let mut buf = [0; (4 * 8)];
-
-        for i in 0..(4 * 8) {
-            buf[i] = try!(s.read_u8());
-        }
-
-        let mut n = [0; 4];
-        for (l, i) in (0..4).rev().zip((0..4).map(|i| i * 8)) {
-            n[l] = BigEndian::read_u64(&buf[i..]);
-        }
-
-        Ok(U256(n))
+        let helper = U512Helper(buf_l, buf_r);
+        helper.serialize(serializer)
     }
 }
 
@@ -336,6 +321,39 @@ impl U256 {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct U256Helper([u8; 32]);
+
+impl<'de> Deserialize<'de> for U256 {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let U256Helper(buf) = U256Helper::deserialize(de)?;
+
+        let mut n = [0; 4];
+        for (l, i) in (0..4).rev().zip((0..4).map(|i| i * 8)) {
+            n[l] = BigEndian::read_u64(&buf[i..]);
+        }
+
+        Ok(U256(n))
+    }
+}
+
+impl Serialize for U256 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        let mut buf = [0; (4 * 8)];
+
+        for (l, i) in (0..4).rev().zip((0..4).map(|i| i * 8)) {
+            BigEndian::write_u64(&mut buf[i..], self.0[l]);
+        }
+
+        let helper = U256Helper(buf);
+        helper.serialize(serializer)
+    }
+}
+
 pub struct BitIterator<'a> {
     int: &'a U256,
     n: usize
@@ -502,165 +520,292 @@ fn mul_reduce(
     this.copy_from_slice(&res[4..]);
 }
 
-#[test]
-fn setting_bits() {
-    let rng = &mut ::rand::thread_rng();
-    let modulo = U256([0xffffffffffffffff; 4]);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let a = U256::random(rng, &modulo);
-    let mut e = U256::zero();
-    for (i, b) in a.bits().enumerate() {
-        assert!(e.set_bit(255 - i, b));
+    #[test]
+    fn setting_bits() {
+        let rng = &mut ::rand::thread_rng();
+        let modulo = U256([0xffffffffffffffff; 4]);
+
+        let a = U256::random(rng, &modulo);
+        let mut e = U256::zero();
+        for (i, b) in a.bits().enumerate() {
+            assert!(e.set_bit(255 - i, b));
+        }
+
+        assert_eq!(a, e);
     }
 
-    assert_eq!(a, e);
-}
+    #[test]
+    fn testing_divrem() {
+        let rng = &mut ::rand::thread_rng();
 
-#[test]
-fn testing_divrem() {
-    let rng = &mut ::rand::thread_rng();
+        let modulo = U256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
 
-    let modulo = U256([0x3c208c16d87cfd47, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]);
+        for _ in 0..100 {
+            let c0 = U256::random(rng, &modulo);
+            let c1 = U256::random(rng, &modulo);
 
-    for _ in 0..100 {
-        let c0 = U256::random(rng, &modulo);
-        let c1 = U256::random(rng, &modulo);
+            let c1q_plus_c0 = U512::from(&c1, &c0, &modulo);
 
-        let c1q_plus_c0 = U512::from(&c1, &c0, &modulo);
+            let (new_c1, new_c0) = c1q_plus_c0.divrem(&modulo);
 
-        let (new_c1, new_c0) = c1q_plus_c0.divrem(&modulo);
+            assert!(c1 == new_c1.unwrap());
+            assert!(c0 == new_c0);
+        }
 
-        assert!(c1 == new_c1.unwrap());
-        assert!(c0 == new_c0);
+        {
+            // Modulus should become 1*q + 0
+            let a = U512([
+                0x3c208c16d87cfd47,
+                0x97816a916871ca8d,
+                0xb85045b68181585d,
+                0x30644e72e131a029,
+                0,
+                0,
+                0,
+                0
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+            assert_eq!(c1.unwrap(), U256::one());
+            assert_eq!(c0, U256::zero());
+        }
+
+        {
+            // Modulus squared minus 1 should be (q-1) q + q-1
+            let a = U512([
+                0x3b5458a2275d69b0,
+                0xa602072d09eac101,
+                0x4a50189c6d96cadc,
+                0x04689e957a1242c8,
+                0x26edfa5c34c6b38d,
+                0xb00b855116375606,
+                0x599a6f7c0348d21c,
+                0x0925c4b8763cbf9c
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+            assert_eq!(c1.unwrap(), U256([0x3c208c16d87cfd46, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
+            assert_eq!(c0, U256([0x3c208c16d87cfd46, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
+        }
+
+        {
+            // Modulus squared minus 2 should be (q-1) q + q-2
+            let a = U512([
+                0x3b5458a2275d69af,
+                0xa602072d09eac101,
+                0x4a50189c6d96cadc,
+                0x04689e957a1242c8,
+                0x26edfa5c34c6b38d,
+                0xb00b855116375606,
+                0x599a6f7c0348d21c,
+                0x0925c4b8763cbf9c
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+
+            assert_eq!(c1.unwrap(), U256([0x3c208c16d87cfd46, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
+            assert_eq!(c0, U256([0x3c208c16d87cfd45, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
+        }
+
+        {
+            // Ridiculously large number should fail
+            let a = U512([
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+            assert!(c1.is_none());
+            assert_eq!(c0, U256([0xf32cfc5b538afa88, 0xb5e71911d44501fb, 0x47ab1eff0a417ff6, 0x06d89f71cab8351f]));
+        }
+
+        {
+            // Modulus squared should fail
+            let a = U512([
+                0x3b5458a2275d69b1,
+                0xa602072d09eac101,
+                0x4a50189c6d96cadc,
+                0x04689e957a1242c8,
+                0x26edfa5c34c6b38d,
+                0xb00b855116375606,
+                0x599a6f7c0348d21c,
+                0x0925c4b8763cbf9c
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+            assert!(c1.is_none());
+            assert_eq!(c0, U256::zero());
+        }
+
+        {
+            // Modulus squared plus one should fail
+            let a = U512([
+                0x3b5458a2275d69b2,
+                0xa602072d09eac101,
+                0x4a50189c6d96cadc,
+                0x04689e957a1242c8,
+                0x26edfa5c34c6b38d,
+                0xb00b855116375606,
+                0x599a6f7c0348d21c,
+                0x0925c4b8763cbf9c
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+            assert!(c1.is_none());
+            assert_eq!(c0, U256::one());
+        }
+
+        {
+            let modulo = U256([0x43e1f593f0000001, 0x2833e84879b97091, 0xb85045b68181585d, 0x30644e72e131a029]);
+
+            // Fr modulus masked off is valid
+            let a = U512([
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0xffffffffffffffff,
+                0x07ffffffffffffff
+            ]);
+
+            let (c1, c0) = a.divrem(&modulo);
+
+            assert!(c1.unwrap() < modulo);
+            assert!(c0 < modulo);
+        }
     }
 
-    {
-        // Modulus should become 1*q + 0
-        let a = U512([
-            0x3c208c16d87cfd47,
-            0x97816a916871ca8d,
-            0xb85045b68181585d,
-            0x30644e72e131a029,
-            0,
-            0,
-            0,
-            0
-        ]);
+    mod serialization {
+        use super::*;
+        use bincode::{serialize, deserialize};
 
-        let (c1, c0) = a.divrem(&modulo);
-        assert_eq!(c1.unwrap(), U256::one());
-        assert_eq!(c0, U256::zero());
-    }
+        use hex::{ToHex, FromHex};
+        use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
-    {
-        // Modulus squared minus 1 should be (q-1) q + q-1
-        let a = U512([
-            0x3b5458a2275d69b0,
-            0xa602072d09eac101,
-            0x4a50189c6d96cadc,
-            0x04689e957a1242c8,
-            0x26edfa5c34c6b38d,
-            0xb00b855116375606,
-            0x599a6f7c0348d21c,
-            0x0925c4b8763cbf9c
-        ]);
+        pub fn into_hex<S: Serialize>(obj: S) -> Option<String> {
+            serialize(&obj).ok().map(hex::encode)
+        }
 
-        let (c1, c0) = a.divrem(&modulo);
-        assert_eq!(c1.unwrap(), U256([0x3c208c16d87cfd46, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
-        assert_eq!(c0, U256([0x3c208c16d87cfd46, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
-    }
+        pub fn from_hex<S: DeserializeOwned>(s: &str) -> Result<S, Box<bincode::ErrorKind>> {
+            let s = hex::decode(s).unwrap();
 
-    {
-        // Modulus squared minus 2 should be (q-1) q + q-2
-        let a = U512([
-            0x3b5458a2275d69af,
-            0xa602072d09eac101,
-            0x4a50189c6d96cadc,
-            0x04689e957a1242c8,
-            0x26edfa5c34c6b38d,
-            0xb00b855116375606,
-            0x599a6f7c0348d21c,
-            0x0925c4b8763cbf9c
-        ]);
+            deserialize(&s)
+        }
 
-        let (c1, c0) = a.divrem(&modulo);
+        #[test]
+        fn serialize_u256() {
+            let values = &[
+                U256::zero(),
+                U256::one(),
+                U256([0x01, 0x05, 0x10, 0x88]),
+                U256([0x8888, 0x9999, 0xAAAA, 0xBBBB]),
+                U256([0x01234567, 0x89ABCDEF, 0x00112233, 0x44556677]),
+                U256([0x0123456789ABCDEF, 0x0011223344556677, 0x8899AABBCCDDEEFF, 0xAAAABBBBCCCCDDDD])
+            ];
 
-        assert_eq!(c1.unwrap(), U256([0x3c208c16d87cfd46, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
-        assert_eq!(c0, U256([0x3c208c16d87cfd45, 0x97816a916871ca8d, 0xb85045b68181585d, 0x30644e72e131a029]));
-    }
+            let hex = &[
+                "0000000000000000000000000000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000000000000000000000000001",
+                "0000000000000088000000000000001000000000000000050000000000000001",
+                "000000000000bbbb000000000000aaaa00000000000099990000000000008888",
+                "000000004455667700000000001122330000000089abcdef0000000001234567",
+                "aaaabbbbccccdddd8899aabbccddeeff00112233445566770123456789abcdef",
+            ];
 
-    {
-        // Ridiculously large number should fail
-        let a = U512([
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff
-        ]);
+            for (value, hex) in values.iter().zip(hex.iter()) {
+                println!("testing {:?}", value);
+                let serialized = into_hex(&value).unwrap();
+                assert_eq!(&serialized, hex);
+            }
+        }
 
-        let (c1, c0) = a.divrem(&modulo);
-        assert!(c1.is_none());
-        assert_eq!(c0, U256([0xf32cfc5b538afa88, 0xb5e71911d44501fb, 0x47ab1eff0a417ff6, 0x06d89f71cab8351f]));
-    }
+        #[test]
+        fn deserialize_u256() {
+            let values = &[
+                U256::zero(),
+                U256::one(),
+                U256([0x01, 0x05, 0x10, 0x88]),
+                U256([0x8888, 0x9999, 0xAAAA, 0xBBBB]),
+                U256([0x01234567, 0x89ABCDEF, 0x00112233, 0x44556677]),
+                U256([0x0123456789ABCDEF, 0x0011223344556677, 0x8899AABBCCDDEEFF, 0xAAAABBBBCCCCDDDD])
+            ];
 
-    {
-        // Modulus squared should fail
-        let a = U512([
-            0x3b5458a2275d69b1,
-            0xa602072d09eac101,
-            0x4a50189c6d96cadc,
-            0x04689e957a1242c8,
-            0x26edfa5c34c6b38d,
-            0xb00b855116375606,
-            0x599a6f7c0348d21c,
-            0x0925c4b8763cbf9c
-        ]);
+            let hex = &[
+                "0000000000000000000000000000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000000000000000000000000001",
+                "0000000000000088000000000000001000000000000000050000000000000001",
+                "000000000000bbbb000000000000aaaa00000000000099990000000000008888",
+                "000000004455667700000000001122330000000089abcdef0000000001234567",
+                "aaaabbbbccccdddd8899aabbccddeeff00112233445566770123456789abcdef",
+            ];
 
-        let (c1, c0) = a.divrem(&modulo);
-        assert!(c1.is_none());
-        assert_eq!(c0, U256::zero());
-    }
+            for (value, hex) in values.iter().zip(hex.iter()) {
+                println!("testing {:?}", value);
+                let deserialized: U256 = from_hex(hex).unwrap();
+                assert_eq!(&deserialized, value);
+            }
+        }
 
-    {
-        // Modulus squared plus one should fail
-        let a = U512([
-            0x3b5458a2275d69b2,
-            0xa602072d09eac101,
-            0x4a50189c6d96cadc,
-            0x04689e957a1242c8,
-            0x26edfa5c34c6b38d,
-            0xb00b855116375606,
-            0x599a6f7c0348d21c,
-            0x0925c4b8763cbf9c
-        ]);
+        #[test]
+        fn serialize_u512() {
+            let values = &[
+                U512([0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0]),
+                U512([0x01, 0x05, 0x10, 0x88, 0x22, 0x33, 0x55, 0x11]),
+                U512([0x8888, 0x9999, 0xAAAA, 0xBBBB, 0xCCCC, 0xDDDD, 0xEEEE, 0xFFFF]),
+                U512([0x01234567, 0x89ABCDEF, 0x00112233, 0x44556677, 0x8899AABB, 0xCCDDEEFF, 0x00011122, 0x2333444]),
+                U512([0x0123456789ABCDEF, 0x0011223344556677, 0x8899AABBCCDDEEFF, 0xAAAABBBBCCCCDDDD, 0xEEEEFFFF00001111, 0x2222333344445555, 0x6666777788889999, 0xAAAABBBB33334444])
+            ];
 
-        let (c1, c0) = a.divrem(&modulo);
-        assert!(c1.is_none());
-        assert_eq!(c0, U256::one());
-    }
+            let hex = &[
+                "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                "00000000000000110000000000000055000000000000003300000000000000220000000000000088000000000000001000000000000000050000000000000001",
+                "000000000000ffff000000000000eeee000000000000dddd000000000000cccc000000000000bbbb000000000000aaaa00000000000099990000000000008888",
+                "0000000002333444000000000001112200000000ccddeeff000000008899aabb000000004455667700000000001122330000000089abcdef0000000001234567",
+                "aaaabbbb3333444466667777888899992222333344445555eeeeffff00001111aaaabbbbccccdddd8899aabbccddeeff00112233445566770123456789abcdef",
+            ];
 
-    {
-        let modulo = U256([0x43e1f593f0000001, 0x2833e84879b97091, 0xb85045b68181585d, 0x30644e72e131a029]);
+            for (value, hex) in values.iter().zip(hex.iter()) {
+                println!("testing {:?}", value);
+                let serialized = into_hex(&value).unwrap();
+                assert_eq!(&serialized, hex);
+            }
+        }
 
-        // Fr modulus masked off is valid
-        let a = U512([
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0xffffffffffffffff,
-            0x07ffffffffffffff
-        ]);
+        #[test]
+        fn deserialize_u512() {
+            let values = &[
+                U512([0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0]),
+                U512([0x01, 0x05, 0x10, 0x88, 0x22, 0x33, 0x55, 0x11]),
+                U512([0x8888, 0x9999, 0xAAAA, 0xBBBB, 0xCCCC, 0xDDDD, 0xEEEE, 0xFFFF]),
+                U512([0x01234567, 0x89ABCDEF, 0x00112233, 0x44556677, 0x8899AABB, 0xCCDDEEFF, 0x00011122, 0x2333444]),
+                U512([0x0123456789ABCDEF, 0x0011223344556677, 0x8899AABBCCDDEEFF, 0xAAAABBBBCCCCDDDD, 0xEEEEFFFF00001111, 0x2222333344445555, 0x6666777788889999, 0xAAAABBBB33334444])
+            ];
 
-        let (c1, c0) = a.divrem(&modulo);
+            let hex = &[
+                "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                "00000000000000110000000000000055000000000000003300000000000000220000000000000088000000000000001000000000000000050000000000000001",
+                "000000000000ffff000000000000eeee000000000000dddd000000000000cccc000000000000bbbb000000000000aaaa00000000000099990000000000008888",
+                "0000000002333444000000000001112200000000ccddeeff000000008899aabb000000004455667700000000001122330000000089abcdef0000000001234567",
+                "aaaabbbb3333444466667777888899992222333344445555eeeeffff00001111aaaabbbbccccdddd8899aabbccddeeff00112233445566770123456789abcdef",
+            ];
 
-        assert!(c1.unwrap() < modulo);
-        assert!(c0 < modulo);
+            for (value, hex) in values.iter().zip(hex.iter()) {
+                println!("testing {:?}", value);
+                let deserialized: U512 = from_hex(hex).unwrap();
+                assert_eq!(&deserialized, value);
+            }
+        }
     }
 }

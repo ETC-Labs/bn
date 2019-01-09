@@ -1,10 +1,11 @@
 use fields::{FieldElement, const_fq, Fq};
-use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
 use rand::Rng;
 
 use arith::{U256, U512};
 
-use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
+use serde::{Serialize, Serializer, Deserialize, Deserializer, de::Error};
 
 #[inline]
 fn fq_non_residue() -> Fq {
@@ -28,16 +29,42 @@ pub struct Fq2 {
     c1: Fq
 }
 
-impl Encodable for Fq2 {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+impl Serialize for Fq2 {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        let c0: U256 = self.c0.into();
+        let c1: U256 = self.c1.into();
+
+        U512::from(&c1, &c0, &Fq::modulus()).serialize(s)
+    }
+    /*
+    fn serialize<S: Serializer>(&self, s: &mut S) -> Result<(), S::Error> {
         let c0: U256 = self.c0.into();
         let c1: U256 = self.c1.into();
 
         U512::from(&c1, &c0, &Fq::modulus()).encode(s)
     }
+    */
 }
 
-impl Decodable for Fq2 {
+impl<'de> Deserialize<'de> for Fq2 {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let combined = U512::deserialize(de)?;
+
+        match combined.divrem(&Fq::modulus()) {
+            (Some(c1), c0) => {
+                Ok(Fq2::new(Fq::new(c0).unwrap(), Fq::new(c1).unwrap()))
+            },
+            _ => {
+                Err(D::Error::custom("integer not less than modulus squared"))
+            }
+        }
+    }
+
+    /*
     fn decode<S: Decoder>(s: &mut S) -> Result<Fq2, S::Error> {
         let combined = try!(U512::decode(s));
 
@@ -50,6 +77,7 @@ impl Decodable for Fq2 {
             }
         }
     }
+    */
 }
 
 impl Fq2 {

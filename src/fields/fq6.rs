@@ -1,5 +1,6 @@
 use fields::{FieldElement, Fq, Fq2, const_fq};
-use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
 use rand::Rng;
 
 fn frobenius_coeffs_c1(n: usize) -> Fq2 {

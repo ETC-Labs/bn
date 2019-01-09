@@ -1,10 +1,14 @@
-use std::ops::{Add,Sub,Neg,Mul};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::fmt;
+#[cfg(not(feature = "std"))] use core::fmt;
+#[cfg(not(feature = "std"))] use alloc::vec::Vec;
+
 use fields::{FieldElement, Fq, Fq2, Fq12, Fr, const_fq, fq2_nonresidue};
 use arith::U256;
-use std::fmt;
 use rand::Rng;
 
-use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
+use serde::{Serialize, Serializer, Deserialize, Deserializer, de::DeserializeOwned, de::Error};
 
 pub trait GroupElement: Sized +
                     Copy +
@@ -25,7 +29,7 @@ pub trait GroupElement: Sized +
 }
 
 pub trait GroupParams: Sized {
-    type Base: FieldElement + Decodable + Encodable;
+    type Base: FieldElement + DeserializeOwned + Serialize;
 
     fn name() -> &'static str;
     fn one() -> G<Self>;
@@ -140,66 +144,62 @@ impl<P: GroupParams> AffineG<P> {
     }
 }
 
-impl<P: GroupParams> Encodable for G<P> {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        if self.is_zero() {
-            let l: u8 = 0;
-            l.encode(s)
+impl<P: GroupParams> Serialize for G<P> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let value = if self.is_zero() {
+            None
         } else {
-            let l: u8 = 4;
-            try!(l.encode(s));
-            self.to_affine().unwrap().encode(s)
+            let affine = self.to_affine().unwrap();
+            Some(affine)
+        };
+
+        value.serialize(s)
+    }
+}
+
+impl<'de, P: GroupParams> Deserialize<'de> for G<P> {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let h = <Option<AffineG<P>>>::deserialize(de)?;
+        match h {
+            None => Ok(G::zero()),
+            Some(affine) => Ok(affine.to_jacobian())
         }
     }
 }
 
-impl<P: GroupParams> Encodable for AffineG<P> {
-    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        try!(self.x.encode(s));
-        try!(self.y.encode(s));
-
-        Ok(())
+impl<P: GroupParams> Serialize for AffineG<P> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (self.x, self.y).serialize(s)
     }
 }
 
-impl<P: GroupParams> Decodable for G<P> {
-    fn decode<S: Decoder>(s: &mut S) -> Result<G<P>, S::Error> {
-        let l = try!(u8::decode(s));
-        if l == 0 {
-            Ok(G::zero())
-        } else if l == 4 {
-            Ok(try!(AffineG::decode(s)).to_jacobian())
-        } else {
-            Err(s.error("invalid leading byte for uncompressed group element"))
-        }
-    }
-}
+impl<'de, P: GroupParams> Deserialize<'de> for AffineG<P> {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let (x, y) = <(P::Base, P::Base)>::deserialize(de)?;
 
-impl<P: GroupParams> Decodable for AffineG<P> {
-    fn decode<S: Decoder>(s: &mut S) -> Result<AffineG<P>, S::Error> {
-        let x = try!(P::Base::decode(s));
-        let y = try!(P::Base::decode(s));
-
-        // y^2 = x^3 + b
         if y.squared() == (x.squared() * x) + P::coeff_b() {
             if P::check_order() {
                 let p: G<P> = G {
-                    x: x,
-                    y: y,
+                    x,
+                    y,
                     z: P::Base::one()
                 };
 
                 if (p * (-Fr::one())) + p != G::zero() {
-                    return Err(s.error("point is not in the subgroup"))
+                    return Err(D::Error::custom("point is not in the subgroup"))
                 }
             }
 
             Ok(AffineG {
-                x: x,
-                y: y
+                x,
+                y
             })
         } else {
-            Err(s.error("point is not on the curve"))
+            return Err(D::Error::custom("point is not on the curve"))
         }
     }
 }
@@ -797,9 +797,11 @@ fn test_reduced_pairing() {
 
 #[test]
 fn test_binlinearity() {
+    use std::mem::transmute_copy;
     use rand::{SeedableRng,StdRng};
     let seed: [usize; 4] = [103245, 191922, 1293, 192103];
-    let mut rng = StdRng::from_seed(&seed);
+    let seed_u8 = unsafe { transmute_copy(&seed) };
+    let mut rng = StdRng::from_seed(seed_u8);
 
     for _ in 0..50 {
         let p = G1::random(&mut rng);

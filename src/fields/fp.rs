@@ -1,8 +1,10 @@
 use rand::Rng;
-use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use alloc::vec::Vec;
 use super::FieldElement;
 
-use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
+use serde::{Serialize, Serializer, Deserialize, Deserializer, de::Error};
 
 use arith::{U512, U256};
 
@@ -21,17 +23,22 @@ macro_rules! field_impl {
             }
         }
 
-        impl Encodable for $name {
-            fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        impl Serialize for $name {
+            fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+                where S: Serializer
+            {
                 let normalized = U256::from(*self);
-
-                normalized.encode(s)
+                normalized.serialize(s)
             }
         }
 
-        impl Decodable for $name {
-            fn decode<S: Decoder>(s: &mut S) -> Result<$name, S::Error> {
-                $name::new(try!(U256::decode(s))).ok_or_else(|| s.error("integer is not less than modulus"))
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(d: D) -> Result<Self, D::Error>
+               where D: Deserializer<'de>
+            {
+                let normalized = U256::deserialize(d)?;
+                $name::new(normalized)
+                    .ok_or_else(|| D::Error::custom("integer is not less then modulus"))
             }
         }
 

@@ -5,8 +5,10 @@ mod fq12;
 
 use arith::U256;
 use rand::Rng;
-use std::ops::{Add, Sub, Mul, Neg};
-use std::fmt::Debug;
+#[cfg(feature = "std")] use std::ops::{Add, Sub, Mul, Neg};
+#[cfg(not(feature = "std"))] use core::ops::{Add, Sub, Mul, Neg};
+#[cfg(feature = "std")] use std::fmt::Debug;
+#[cfg(not(feature = "std"))] use core::fmt::Debug;
 
 pub use self::fp::{Fq,Fr,const_fq};
 pub use self::fq2::{Fq2, fq2_nonresidue};
