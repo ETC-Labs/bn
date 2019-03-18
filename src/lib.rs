@@ -14,9 +14,9 @@ extern crate byteorder;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 
-mod arith;
-mod fields;
-mod groups;
+pub mod arith;
+pub mod fields;
+pub mod groups;
 
 use fields::FieldElement;
 use groups::GroupElement;
